@@ -52,25 +52,29 @@ nav{display:flex;gap:4px;padding:10px 12px;flex:none;overflow-x:auto}
 nav button{padding:7px 15px;border-radius:999px;font-weight:700;font-size:14px;color:var(--muted);white-space:nowrap}
 nav button[aria-current="true"]{background:var(--surface-2);color:var(--paper)}
 main{flex:1;overflow-y:auto;padding:6px 16px 24px;-webkit-overflow-scrolling:touch}
-.view{display:none}.view.on{display:block;max-width:1080px;margin:0 auto}
+.view{display:none}.view.on{display:block;max-width:1200px;margin:0 auto}
 h2{font-size:15px;font-weight:800;margin:0 0 10px;letter-spacing:-.01em}
 .hint{color:var(--muted);font-size:13px;line-height:1.6;margin:8px 0 0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
 pre{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto;
   font-size:12px;line-height:1.5;margin:0}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:12px}
-.stu{background:var(--surface);border:1px solid var(--line);border-radius:18px;
-  padding:16px 8px 14px;text-align:center;transition:transform .1s}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.stu{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  padding:12px 6px 10px;text-align:center;transition:transform .1s}
 .stu:active{transform:scale(.95)}
-.ball{width:62px;height:62px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:26px;color:#fff;position:relative;overflow:hidden}
-.ball::after{content:'';position:absolute;top:7px;left:13px;width:19px;height:11px;border-radius:50%;
+.ball{width:52px;height:52px;border-radius:50%;margin:0 auto 7px;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:22px;color:#fff;position:relative;overflow:hidden}
+.ball::after{content:'';position:absolute;top:6px;left:11px;width:16px;height:9px;border-radius:50%;
   background:rgba(255,255,255,.45);transform:rotate(-25deg)}
-.stu .nm{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stu .tk{font-size:32px;font-weight:800;line-height:1.25;color:var(--signal)}
+.stu .nm{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stu .tk{font-size:27px;font-weight:800;line-height:1.2;color:var(--signal)}
 .stu.zero .tk{color:var(--line)}
+.stu{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .stu.bump{animation:bump .45s}
+.stu.minus{animation:minusbump .45s}
+@keyframes minusbump{0%{transform:scale(1)}30%{transform:scale(.9);border-color:var(--minus)}100%{transform:scale(1)}}
+.ghost.hw[aria-pressed="true"]{background:var(--signal);color:#231C00;border-color:var(--signal)}
 @keyframes bump{0%{transform:scale(1)}30%{transform:scale(1.1);border-color:var(--plus)}100%{transform:scale(1)}}
 
 .scrim{position:fixed;inset:0;background:rgba(5,7,12,.74);display:none;z-index:40}
@@ -164,9 +168,11 @@ label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:0 0
     <section class="view on" id="v-give">
       <div class="row" style="margin-bottom:14px">
         <button class="ghost undo" id="undoBtn" style="flex:2" disabled>되돌리기</button>
+        <button class="ghost hw" id="hwBtn" style="flex:1" aria-pressed="false">숙제 모드 +3</button>
         <button class="ghost" id="bonusBtn" style="flex:1">전원 보너스 +1</button>
         <button class="ghost" id="presBtn" style="flex:1">회장 모드</button>
       </div>
+      <p class="hint" id="giveHint" style="margin:0 0 12px">번호를 누르면 +1, 길게 누르면 −1입니다.</p>
       <div class="grid" id="grid"></div>
       <p class="hint" id="emptyHint" hidden>설정 탭에서 이 반의 명단을 먼저 넣어 주세요.</p>
     </section>
@@ -289,12 +295,6 @@ create policy anon_rw on lotto_state
   </main>
 </div>
 
-<div class="scrim" id="scrim"></div>
-<div class="sheet" id="sheet" role="dialog" aria-modal="true">
-  <h3 id="sheetName">이름</h3>
-  <div class="sub" id="sheetSub"></div>
-  <div class="acts" id="sheetActs"></div>
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -383,7 +383,7 @@ function renderGrid(){
     b.className = 'stu'+(t===0?' zero':'');
     b.innerHTML = '<div class="ball num" style="background:'+ballColor(i)+'">'+i+'</div>'+
       '<div class="nm">'+esc(nameOf(i))+'</div><div class="tk num">'+t+'</div>';
-    b.onclick = ()=>openSheet(i);
+    bindStudent(b, i);
     g.appendChild(b);
   }
 }
@@ -414,27 +414,37 @@ function renderUndo(){
   b.textContent = last ? '되돌리기 · '+nameOf(last.no)+' '+(last.count>0?'+':'')+last.count : '되돌릴 것 없음';
 }
 
-function openSheet(no){
-  const t = ticketsOf(no), today = gainedToday(no);
-  $('#sheetName').textContent = no+'. '+nameOf(no);
-  $('#sheetSub').textContent = S.cur+' · 현재 '+t+'장 · 오늘 '+today+'장';
-  const acts = $('#sheetActs'); acts.innerHTML='';
-  const add = (label,n,reason,neg)=>{
-    const b = document.createElement('button');
-    b.className = 'act'+(neg?' neg':'');
-    b.innerHTML = '<span>'+label+'</span><b>'+(n>0?'+':'')+n+'</b>';
-    if(neg && today<1) b.disabled = true;
-    b.onclick = ()=>{ grant(no,n,reason); closeSheet(); bump(no); toast(nameOf(no)+' '+(n>0?'+':'')+n+'장'); };
-    acts.appendChild(b);
+function bindStudent(el, no){
+  let timer = null, longFired = false;
+  const startPress = ()=>{
+    longFired = false;
+    timer = setTimeout(()=>{ longFired = true; deduct(no); }, 550);
   };
-  add('발표',1,'speak'); add('게임 승리',2,'game');
-  if(!presMode){ add('숙제',3,'homework'); add('차감 · 오늘 받은 만큼만',-1,'deduct',true); }
-  $('#scrim').classList.add('on'); $('#sheet').classList.add('on');
+  const endPress = ()=>{ clearTimeout(timer); };
+  el.addEventListener('pointerdown', startPress);
+  el.addEventListener('pointerup', endPress);
+  el.addEventListener('pointerleave', endPress);
+  el.addEventListener('pointercancel', endPress);
+  el.addEventListener('contextmenu', e=>e.preventDefault());
+  el.onclick = ()=>{
+    if(longFired){ longFired = false; return; }
+    const n = (hwMode && !presMode) ? 3 : 1;
+    grant(no, n, hwMode ? 'homework' : 'tap');
+    bump(no, 'bump');
+    toast(nameOf(no)+' +'+n+' · '+ticketsOf(no)+'장');
+  };
 }
-function closeSheet(){ $('#scrim').classList.remove('on'); $('#sheet').classList.remove('on'); }
-$('#scrim').onclick = closeSheet;
-function bump(no){ const el = $('#grid').children[no-1]; if(!el) return;
-  el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+function deduct(no){
+  const today = gainedToday(no);
+  if(today < 1){ toast(nameOf(no)+' — 오늘 받은 로또가 없습니다'); return; }
+  grant(no, -1, 'deduct');
+  bump(no, 'minus');
+  toast(nameOf(no)+' −1 · '+ticketsOf(no)+'장');
+}
+
+function bump(no, cls){ const el = $('#grid').children[no-1]; if(!el) return;
+  cls = cls || 'bump';
+  el.classList.remove('bump','minus'); void el.offsetWidth; el.classList.add(cls); }
 let tT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on');
   clearTimeout(tT); tT=setTimeout(()=>t.classList.remove('on'),1600); }
 
@@ -445,12 +455,23 @@ $('#nav').onclick = e => {
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v));
 };
 $('#presBtn').onclick = ()=>{
-  if(!presMode){ presMode=true; $('#lockBadge').hidden=false; $('#presBtn').textContent='잠금 해제';
-    $('#bonusBtn').hidden=true; toast('회장 모드 — 해제하려면 PIN이 필요합니다'); }
+  if(!presMode){ presMode=true; setHw(false); $('#lockBadge').hidden=false; $('#presBtn').textContent='잠금 해제';
+    $('#bonusBtn').hidden=true; $('#hwBtn').hidden=true; toast('회장 모드 — 해제하려면 PIN이 필요합니다'); }
   else { if(prompt('PIN 4자리') !== S.pin){ toast('PIN이 다릅니다'); return; }
-    presMode=false; $('#lockBadge').hidden=true; $('#presBtn').textContent='회장 모드'; $('#bonusBtn').hidden=false; }
+    presMode=false; $('#lockBadge').hidden=true; $('#presBtn').textContent='회장 모드';
+    $('#bonusBtn').hidden=false; $('#hwBtn').hidden=false; }
   renderAll();
 };
+let hwMode = false;
+function setHw(on){
+  hwMode = on;
+  $('#hwBtn').setAttribute('aria-pressed', String(on));
+  $('#hwBtn').textContent = on ? '숙제 모드 켜짐 +3' : '숙제 모드 +3';
+  $('#giveHint').textContent = on
+    ? '숙제 모드입니다. 번호를 누르면 +3, 길게 누르면 −1입니다.'
+    : '번호를 누르면 +1, 길게 누르면 −1입니다.';
+}
+$('#hwBtn').onclick = ()=>setHw(!hwMode);
 $('#undoBtn').onclick = ()=>{
   const last = C().grants[C().grants.length-1]; if(!last) return;
   if(presMode && last.by!=='president'){ toast('선생님이 준 건 되돌릴 수 없습니다'); return; }
