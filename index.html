@@ -132,6 +132,19 @@ pre{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
 .res .rt{font-weight:800;font-size:12px;letter-spacing:.08em}
 
 .row{display:flex;gap:10px}.row>*{flex:1}
+.logday{font-size:13px;font-weight:800;color:var(--muted);margin:16px 0 8px}
+.logrow{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:9px 12px;margin-bottom:6px;font-size:14px}
+.logrow .lt{color:var(--muted);font-size:12px;width:42px;flex:none}
+.logrow .ln{font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logrow .lr{color:var(--muted);font-size:12px;flex:none}
+.logrow .lc{font-weight:800;width:38px;text-align:right;flex:none}
+.logrow .lc.p{color:var(--plus)}.logrow .lc.m{color:var(--minus)}
+.pres{font-size:10px;font-weight:800;color:var(--signal);border:1px solid var(--line);
+  border-radius:4px;padding:1px 4px;flex:none}
+.drawcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.drawcard .dh{font-size:13px;color:var(--muted);font-weight:700;margin-bottom:8px}
+.drawcard .dw{font-size:14px;margin:3px 0}
 label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:0 0 6px}
 .field{margin-bottom:14px}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
@@ -161,6 +174,7 @@ label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:0 0
     <button data-v="give" aria-current="true">로또 주기</button>
     <button data-v="board">현황</button>
     <button data-v="draw">추첨</button>
+    <button data-v="log">기록</button>
     <button data-v="set">설정</button>
   </nav>
 
@@ -203,6 +217,17 @@ label{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:0 0
       </div>
       <div class="results" id="results"></div>
       <button class="big sec" id="finishBtn" hidden>추첨 확정하고 로또 정산</button>
+    </section>
+
+    <section class="view" id="v-log">
+      <div class="row" style="margin-bottom:14px">
+        <select id="logWho" style="flex:2"></select>
+        <button class="ghost" id="logRefresh" style="flex:1">새로고침</button>
+      </div>
+      <div id="logSummary" class="hint" style="margin:0 0 12px"></div>
+      <div id="logList"></div>
+      <h2 style="margin-top:22px">추첨 이력</h2>
+      <div id="drawLog"></div>
     </section>
 
     <section class="view" id="v-set">
@@ -313,7 +338,7 @@ const DEFAULT_COUNTS = {Diamond:1,Platinum:1,Gold:1,Silver:1,Bronze:2};
 const cnt = k => Math.max(0, parseInt(S.tierCounts[k],10) || 0);
 const totalPrizes = () => TIERS.reduce((s,t)=>s+cnt(t.key),0);
 
-const blankClass = () => ({names:[], grants:[], draws:[], rev:0});
+const blankClass = () => ({names:[], nums:[], grants:[], draws:[], rev:0});
 const blank = () => {
   const o = {cur:CLASSES[0], classes:{}, prizes:{}, tierCounts:Object.assign({},DEFAULT_COUNTS), carry:0.5, pin:'0000', sbUrl:'', sbKey:''};
   CLASSES.forEach(c=>o.classes[c]=blankClass());
@@ -333,8 +358,16 @@ function load(){
 }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast('저장 실패'); } }
 
-const nameOf = no => C().names[no-1] || (no + '번');
-const countOf = () => Math.max(C().names.length, C().grants.reduce((m,g)=>Math.max(m,g.no),0));
+function numbers(){
+  const c = C();
+  if(c.nums && c.nums.length) return c.nums;
+  if(c.names && c.names.length) return c.names.map((_,i)=>i+1);
+  const mx = c.grants.reduce((m,g)=>Math.max(m,g.no),0);
+  const out=[]; for(let i=1;i<=mx;i++) out.push(i); return out;
+}
+const nameOf = no => { const c=C(); const i=(c.nums||[]).indexOf(no);
+  return (i>=0 ? c.names[i] : c.names[no-1]) || (no + '번'); };
+const countOf = () => numbers().length;
 const ticketsOf = no => C().grants.reduce((s,g)=> g.no===no ? s+g.count : s, 0);
 const sameDay = (a,b)=> new Date(a).toDateString()===new Date(b).toDateString();
 const gainedToday = no => C().grants.reduce((s,g)=>(g.no===no&&g.count>0&&sameDay(g.at,Date.now()))?s+g.count:s,0);
@@ -349,7 +382,7 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
   t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 function drawRanking(seed,n){
   const rng = mulberry32(seed);
-  let pool = []; for(let i=1;i<=countOf();i++){ const t = ticketsOf(i); if(t>0) pool.push({no:i,tickets:t}); }
+  let pool = []; numbers().forEach(i=>{ const t = ticketsOf(i); if(t>0) pool.push({no:i,tickets:t}); });
   const out = [];
   while(out.length<n && pool.length){
     const total = pool.reduce((s,e)=>s+e.tickets,0);
@@ -375,9 +408,10 @@ function renderClassbar(){
   });
 }
 function renderGrid(){
-  const g = $('#grid'); g.innerHTML=''; const n = countOf();
-  $('#emptyHint').hidden = n>0;
-  for(let i=1;i<=n;i++){
+  const g = $('#grid'); g.innerHTML='';
+  const ns = numbers();
+  $('#emptyHint').hidden = ns.length>0;
+  ns.forEach(i=>{
     const t = ticketsOf(i);
     const b = document.createElement('button');
     b.className = 'stu'+(t===0?' zero':'');
@@ -385,7 +419,7 @@ function renderGrid(){
       '<div class="nm">'+esc(nameOf(i))+'</div><div class="tk num">'+t+'</div>';
     bindStudent(b, i);
     g.appendChild(b);
-  }
+  });
 }
 function renderBoard(){
   const tl = $('#tierList'); tl.innerHTML='';
@@ -397,14 +431,14 @@ function renderBoard(){
     tl.appendChild(d);
   });
   const bd = $('#board'); bd.innerHTML=''; let sum=0;
-  for(let i=1;i<=countOf();i++){
+  numbers().forEach(i=>{
     const t = ticketsOf(i); sum += t;
     const d = document.createElement('div'); d.className='bcell';
     d.innerHTML = '<span class="bdot num" style="background:'+ballColor(i)+'">'+i+'</span>'+
       '<span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nameOf(i))+'</span>'+
       '<span class="bt num">'+t+'</span>';
     bd.appendChild(d);
-  }
+  });
   $('#totalTk').textContent = countOf() ? '· '+S.cur+' 전체 '+sum+'장' : '';
 }
 function renderUndo(){
@@ -442,7 +476,7 @@ function deduct(no){
   toast(nameOf(no)+' −1 · '+ticketsOf(no)+'장');
 }
 
-function bump(no, cls){ const el = $('#grid').children[no-1]; if(!el) return;
+function bump(no, cls){ const el = $('#grid').children[numbers().indexOf(no)]; if(!el) return;
   cls = cls || 'bump';
   el.classList.remove('bump','minus'); void el.offsetWidth; el.classList.add(cls); }
 let tT; function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on');
@@ -453,6 +487,7 @@ $('#nav').onclick = e => {
   if(presMode && b.dataset.v!=='give'){ toast('회장 모드에서는 잠겨 있습니다'); return; }
   [...$('#nav').children].forEach(x=>x.setAttribute('aria-current', String(x===b)));
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v));
+  if(b.dataset.v==='log') renderLog();
 };
 $('#presBtn').onclick = ()=>{
   if(!presMode){ presMode=true; setHw(false); $('#lockBadge').hidden=false; $('#presBtn').textContent='잠금 해제';
@@ -478,10 +513,10 @@ $('#undoBtn').onclick = ()=>{
   C().grants.pop(); touch(); toast('되돌렸습니다');
 };
 $('#bonusBtn').onclick = ()=>{
-  const n = countOf(); if(!n) return;
-  if(!confirm(S.cur+' '+n+'명 전원에게 +1을 줍니다.')) return;
+  const ns = numbers(); if(!ns.length) return;
+  if(!confirm(S.cur+' '+ns.length+'명 전원에게 +1을 줍니다.')) return;
   const at = new Date().toISOString();
-  for(let i=1;i<=n;i++) C().grants.push({no:i,count:1,reason:'bonus',by:'teacher',at});
+  ns.forEach(i=>C().grants.push({no:i,count:1,reason:'bonus',by:'teacher',at}));
   touch(); toast('전원 +1');
 };
 
@@ -495,7 +530,7 @@ function resetDraw(){
 $('#startBtn').onclick = ()=>{
   const seed = parseInt($('#seed').value,10);
   if(!Number.isFinite(seed)){ toast('추첨 번호를 넣어 주세요'); return; }
-  let elig = 0; for(let i=1;i<=countOf();i++) if(ticketsOf(i)>0) elig++;
+  let elig = 0; numbers().forEach(i=>{ if(ticketsOf(i)>0) elig++; });
   if(!elig){ toast('로또를 가진 학생이 없습니다'); return; }
   pendingSeed = seed;
   ranking = drawRanking(seed, Math.min(totalPrizes(), elig));
@@ -510,7 +545,7 @@ $('#nextBtn').onclick = ()=>{
   const rank = revealIdx, no = ranking[rank], tier = tierAt(rank);
   rolling = true; $('#nextBtn').disabled = true;
   $('#rollTier').textContent='\u00A0'; $('#rollPrize').textContent='\u00A0'; $('#relay').textContent='\u00A0';
-  const pool = []; for(let i=1;i<=countOf();i++) if(ticketsOf(i)>0) pool.push(i);
+  const pool = []; numbers().forEach(i=>{ if(ticketsOf(i)>0) pool.push(i); });
   const start = performance.now(), dur = 2200;
   (function tick(now){
     const p = Math.min(1,(now-start)/dur), ease = 1-Math.pow(1-p,3);
@@ -547,10 +582,10 @@ $('#finishBtn').onclick = ()=>{
   C().draws.push({seed:pendingSeed, ranking:ranking.slice(), at});
   const winners = {}; ranking.forEach(n=>winners[n]=1);
   const kept = [];
-  for(let i=1;i<=countOf();i++){
+  numbers().forEach(i=>{
     const keep = winners[i] ? 0 : Math.floor(ticketsOf(i)*S.carry);
     if(keep>0) kept.push({no:i,count:keep,reason:'carryover',by:'system',at});
-  }
+  });
   C().grants = kept; touch(); resetDraw(); toast('정산 완료');
 };
 
@@ -558,11 +593,62 @@ function updateTotal(){
   const el = $('#prizeTotal'); if(!el) return;
   el.textContent = '반당 '+totalPrizes()+'명 · 6개 반 합계 '+(totalPrizes()*6)+'개';
 }
+const REASON = {speak:'발표', game:'게임', homework:'숙제', tap:'', bonus:'전원 보너스',
+  deduct:'차감', carryover:'이월', demo:'예시'};
+function renderLog(){
+  const sel = $('#logWho'), keep = sel.value;
+  sel.innerHTML = '<option value="all">전체 학생</option>' +
+    numbers().map(n=>'<option value="'+n+'">'+n+'. '+esc(nameOf(n))+'</option>').join('');
+  if(keep) sel.value = keep;
+  const who = sel.value === 'all' ? null : parseInt(sel.value,10);
+
+  let gs = C().grants.slice();
+  if(who) gs = gs.filter(g=>g.no===who);
+  const total = gs.reduce((a,g)=>a+g.count,0);
+  $('#logSummary').textContent = who
+    ? nameOf(who)+' · 현재 '+ticketsOf(who)+'장 · 기록 '+gs.length+'건'
+    : S.cur+' 전체 '+total+'장 · 기록 '+gs.length+'건';
+
+  const box = $('#logList'); box.innerHTML='';
+  if(!gs.length){ box.innerHTML = '<p class="hint">아직 기록이 없습니다.</p>'; }
+  const recent = gs.slice(-400).reverse();
+  let day = '';
+  recent.forEach(g=>{
+    const d = new Date(g.at);
+    const dk = d.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
+    if(dk !== day){ day = dk;
+      const h = document.createElement('div'); h.className='logday'; h.textContent = dk; box.appendChild(h); }
+    const r = document.createElement('div'); r.className='logrow';
+    const reason = REASON[g.reason] || '';
+    r.innerHTML = '<span class="lt num">'+d.toTimeString().slice(0,5)+'</span>'+
+      '<span class="ln">'+g.no+'. '+esc(nameOf(g.no))+'</span>'+
+      (g.by==='president' ? '<span class="pres">회장</span>' : '')+
+      (reason ? '<span class="lr">'+reason+'</span>' : '')+
+      '<span class="lc num '+(g.count>0?'p':'m')+'">'+(g.count>0?'+':'')+g.count+'</span>';
+    box.appendChild(r);
+  });
+
+  const dl = $('#drawLog'); dl.innerHTML='';
+  if(!C().draws.length){ dl.innerHTML = '<p class="hint">아직 추첨 기록이 없습니다.</p>'; return; }
+  C().draws.slice().reverse().forEach(dw=>{
+    const c = document.createElement('div'); c.className='drawcard';
+    let html = '<div class="dh">'+new Date(dw.at).toLocaleDateString('ko-KR')+' · 추첨번호 '+dw.seed+'</div>';
+    dw.ranking.forEach((no,i)=>{
+      const t = tierAt(i);
+      html += '<div class="dw"><span style="color:'+t.color+';font-weight:800">'+t.key+'</span> &nbsp;'+
+        no+'. '+esc(nameOf(no))+'</div>';
+    });
+    c.innerHTML = html; dl.appendChild(c);
+  });
+}
+$('#logWho').onchange = renderLog;
+$('#logRefresh').onclick = renderLog;
+
 function renderSettings(){
   $('#rosterTitle').textContent = S.cur+' 명단';
   $('#demoCls').textContent = S.cur;
   $('#resetCls').textContent = S.cur;
-  $('#roster').value = C().names.join('\n');
+  $('#roster').value = numbers().map((n,i)=>n+' '+(C().names[i]||'')).join('\n');
   $('#carry').value = String(S.carry); $('#pin').value = S.pin;
   $('#sbUrl').value = S.sbUrl; $('#sbKey').value = S.sbKey;
   const box = $('#prizeInputs'); box.innerHTML='';
@@ -582,9 +668,37 @@ function renderSettings(){
   updateTotal();
 }
 $('#saveRoster').onclick = ()=>{
-  const names = $('#roster').value.split('\n').map(x=>x.trim()).filter(Boolean);
-  if(!names.length){ toast('명단이 비어 있습니다'); return; }
-  C().names = names; save(); renderAll(); schedulePush(); toast(S.cur+' '+names.length+'명 저장');
+  const lines = $('#roster').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  if(!lines.length){ toast('명단이 비어 있습니다'); return; }
+  const nums=[], names=[]; let auto=0;
+  for(const line of lines){
+    const m = line.match(/^(\d{1,3})\s*[.)]?\s+(.*)$/);
+    if(m && m[2]){ nums.push(parseInt(m[1],10)); names.push(m[2].trim()); }
+    else { auto++; nums.push(0); names.push(line); }
+  }
+  // 번호가 없는 줄은 빈 번호를 순서대로 채움
+  let next=1;
+  for(let i=0;i<nums.length;i++){
+    if(nums[i]===0){ while(nums.includes(next)) next++; nums[i]=next; next++; }
+  }
+  if(new Set(nums).size !== nums.length){ toast('번호가 중복됐습니다'); return; }
+
+  const old = C();
+  const hadData = old.grants.length>0;
+  let moved = 0;
+  if(hadData && old.names.length){
+    // 이름이 같은 학생의 기록을 새 번호로 옮김
+    const oldNums = (old.nums && old.nums.length) ? old.nums : old.names.map((_,i)=>i+1);
+    const map = {};
+    old.names.forEach((nm,i)=>{ const j = names.indexOf(nm); if(j>=0) map[oldNums[i]] = nums[j]; });
+    const changed = Object.keys(map).some(k=>map[k] !== Number(k));
+    if(changed && !confirm('번호가 바뀐 학생이 있습니다. 기존 로또 기록을 이름 기준으로 새 번호에 맞춰 옮깁니다. 계속할까요?')) return;
+    old.grants.forEach(g=>{ if(map[g.no] != null && map[g.no] !== g.no){ g.no = map[g.no]; moved++; } });
+    old.draws.forEach(d=>{ d.ranking = d.ranking.map(n=> map[n] != null ? map[n] : n); });
+  }
+  old.nums = nums; old.names = names;
+  touch(); renderSettings();
+  toast(S.cur+' '+names.length+'명 저장'+(moved?' · 기록 '+moved+'건 이전':''));
 };
 $('#carry').onchange = e => { S.carry = parseFloat(e.target.value); save(); schedulePush(); };
 $('#pin').oninput = e => { S.pin = e.target.value; save(); };
@@ -615,7 +729,7 @@ async function pushAll(){
   if(!hasSB()) return;
   try{
     const rows = CLASSES.map(c=>({class_id:c, rev:S.classes[c].rev,
-      data:{grants:S.classes[c].grants, draws:S.classes[c].draws, count:S.classes[c].names.length}}));
+      data:{grants:S.classes[c].grants, draws:S.classes[c].draws, nums:S.classes[c].nums||[], count:S.classes[c].names.length}}));
     rows.push({class_id:'_global', rev:Date.now(), data:{prizes:S.prizes, tierCounts:S.tierCounts, carry:S.carry}});
     const r = await fetch(S.sbUrl+'/rest/v1/lotto_state?on_conflict=class_id',
       {method:'POST', headers:Object.assign(H(),{Prefer:'resolution=merge-duplicates'}), body:JSON.stringify(rows)});
@@ -640,6 +754,7 @@ async function pullAll(loud){
       if((row.rev||0) > (local.rev||0)){
         local.grants = (row.data && row.data.grants) || [];
         local.draws  = (row.data && row.data.draws)  || [];
+        if(row.data && row.data.nums && row.data.nums.length && !(local.names||[]).length) local.nums = row.data.nums;
         local.rev = row.rev; n++;
       }
     });
